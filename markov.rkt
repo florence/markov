@@ -94,14 +94,7 @@
     (define f (freq b))
     (if (<= idx f)
         a
-        (loop (- idx f) (rest h))))
-  #;
-  (for/first : A
-             ([([a : A] [b : B]) dict]
-              #:when (let* ([f (freq b)] [r (<= idx b)])
-                       (set! idx (- idx freq))
-                       r))
-    a))
+        (loop (- idx f) (rest h)))))
 
 (module+ test
   (: empty-markov : MarkovChain)
