@@ -8,9 +8,12 @@
 (struct blob 
   ([count : Natural] [data : (HashTable Symbol Natural)])
   #:transparent)
+(: empty-markov : MarkovChain)
+(define empty-markov ((inst hash (List Symbol Symbol) blob)))
+
 
 (: train-markov : (Listof String) [#:initial-chain MarkovChain] -> MarkovChain)
-(define (train-markov strings #:initial-chain [markov ((inst hash (List Symbol Symbol) blob))])
+(define (train-markov strings #:initial-chain [markov empty-markov])
   (let loop ([strings strings] [markov markov])
     (if (null? strings)
         markov
@@ -72,18 +75,67 @@
    (symbol->string (first words))
    (map (lambda (s) (format " ~a" s)) (rest words))))
 
+;; use custom writing format because cast is super slow
 (: save-markov : MarkovChain Path-String -> Void)
 (define (save-markov markov path)
   (define o (open-output-file path #:exists 'replace))
-  (write markov o)
+  (write (markov->printable markov) o)
   (close-output-port o))
+
+(: markov->printable : MarkovChain -> Any)
+(define (markov->printable markov)
+  `(TOP ,@(map (lambda ([x : (Pairof (List Symbol Symbol) blob)])
+                 (list (car x) (blob->printable (cdr x))))
+               (hash->list markov))))
+(: blob->printable : blob -> Any)
+(define (blob->printable blob)
+  `(blob ,(blob-count blob)
+    (IN ,@(map (lambda (x) x) (hash->list (blob-data blob))))))
 
 (: load-markov : Path-String -> MarkovChain)
 (define (load-markov path)
   (define i (open-input-file path))
   (define v (read i))
   (close-input-port i)
-  (cast v MarkovChain))
+  (printed->markov v))
+
+(: printed->markov : Any -> MarkovChain)
+(define (printed->markov printed)
+  (match printed
+    [`(TOP ,(list prefix blob) ...)
+     (define m empty-markov)
+     (let loop ([m m] [ps prefix] [blobs blob])
+       (cond [(null? ps) m]
+             [else 
+              (define p1 (parse-prefix (first ps)))
+              (define b1 (parse-blob (first blobs)))
+              (loop (hash-set m p1 b1)
+                    (rest ps)
+                    (rest blobs))]))]))
+(: parse-prefix : Any -> (List Symbol Symbol))
+(define (parse-prefix p)
+  (define-predicate prefix? (List Symbol Symbol))
+  (if (prefix? p)
+      p
+      (error 'load "expected prefix, got ~s" p)))
+(: parse-blob : Any -> blob)
+(define (parse-blob b)
+  (define-predicate symbols? (Listof Symbol))
+  (define-predicate numbers? (Listof Natural))
+  (define-predicate number? Natural)
+  (match b
+    [`(blob ,n (IN ,(cons w c) ...))
+     (if (not (and (number? n) (symbols? w) (numbers? c)))
+         (error 'load "expected valid blob, got ~s" b)
+         (blob n
+               (let loop ([x ((inst hash Symbol Natural))]
+                          [ws : (Listof Symbol)  w]
+                          [cs : (Listof Natural) c])
+                 (if (or (null? w) (null? cs))
+                     x
+                     (loop (hash-set x (first ws) (first cs))
+                           (rest ws)
+                           (rest cs))))))]))
 
 (: choose : (All (A B) (-> (HashTable A B) (B -> Natural) A)))
 (define (choose dict freq)
@@ -97,9 +149,7 @@
         (loop (- idx f) (rest h)))))
 
 (module+ test
-  (: empty-markov : MarkovChain)
-  (define empty-markov ((inst hash (List Symbol Symbol) blob)))
-  (test-begin
+    (test-begin
    (define m (train-markov (list "a b a b c")))
    (define (test a b)
      (check-true
