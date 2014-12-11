@@ -13,26 +13,50 @@
 (define empty-markov (markov 0 ((inst hash (List Symbol Symbol) blob))))
 
 
-(: train-markov : (Listof String) [#:initial-chain markov] -> markov)
-(define (train-markov strings #:initial-chain [m empty-markov])
+(: train-markov : ((Listof String) [#:initial-chain markov]
+                   [#:ignore-symbolic Boolean]
+                   -> markov))
+(define (train-markov strings #:initial-chain [m empty-markov] #:ignore-symbolic [ignore-sym? #f])
   (let loop ([strings strings] [m m])
     (if (null? strings)
         m
         (loop (rest strings)
-              (add-to-chain m (first strings))))))
+              (add-to-chain m (first strings) ignore-sym?)))))
 
-(: add-to-chain : markov String -> markov)
-(define (add-to-chain m str)
+(: add-to-chain : markov String Boolean -> markov)
+(define (add-to-chain m str ignore-sym?)
   (define words (map string->symbol (string-split str)))
-  (if (or (null? words) (null? (rest words)))
-      m
-      (let loop ([words words] [m m])
-        (cond [(empty? (cddr words)) m]
-              [else
-               (define key (list (first words) (second words)))
-               (define new-value (third words))
+  (let loop ([words words] [m m])
+    (cond [(or 
+            (null? words)
+            (null? (cdr words))
+            (null? (cddr words)))
+           m]
+          [else
+           (define key (list (first words) (second words)))
+           (define new-value (third words))
+           (define cleaned (if ignore-sym? (clean new-value) new-value))
+           (if (not cleaned)
+               (loop (cdddr words) m)
                (loop (rest words)
-                     (add-data m key new-value))]))))
+                     (add-data m key cleaned)))])))
+
+(: clean : Symbol -> (Option Symbol))
+;; cleans out all symbols except . , : ; !
+;; returns #f if only symbols remain
+;; BUG: [ and ] are not treated as symbols because regex makes my head hurt
+(define (clean s)
+  (define symbols #rx"[()@#$%^&*\"'/><\\|]")
+  (define exceptions #rx"^[.,:;\\!].*$")
+  (define new (regexp-replace* symbols (symbol->string s) ""))
+  (and (not (regexp-match? exceptions new))
+       (string->symbol new)))
+(module+ test
+  (check-equal? (clean '|a(|) 'a)
+  (check-equal? (clean '|a)|) 'a)
+  (check-equal? (clean '|a).|) 'a.)
+  (check-equal? (clean '|module).|) 'module.)
+  (check-equal? (clean '!) #f))
 
 (: add-data : markov (List Symbol Symbol) Symbol -> markov)
 (define (add-data m key val)
@@ -52,9 +76,10 @@
           (define b2 (blob (add1 (blob-count old)) hs2))
           (hash-set chain key b2)])))
 
-(: generate : markov Natural [#:seed (Option Positive-Integer)] [#:prefix (Listof Symbol)]
-   -> String)
-(define (generate m limit #:seed [seed #f] #:prefix [in-prefix null])
+(: generate : (markov Natural [#:seed (Option Positive-Integer)] [#:prefix (Listof Symbol)]
+                      [#:chunk? (Symbol -> Any)]
+                      -> String))
+(define (generate m limit #:seed [seed #f] #:prefix [in-prefix null] #:chunk? [chunk? (const #t)])
   (when seed
     (random-seed seed))
   
@@ -75,11 +100,11 @@
           ([out : (Listof Symbol) prefix] [limit : Natural limit])
           (define key (list (second out) (first out)))
           (define blob (hash-ref chain key #f))
-          (if (or (not blob) (zero? limit))
-              out
-              (loop (cons (choose (blob-count blob) (blob-data blob) (lambda ([x : Natural]) x))
-                          out)
-                    (sub1 limit))))))
+          (cond [(or (not blob) (zero? limit)) out]
+                [else
+                 (define s (choose (blob-count blob) (blob-data blob) (lambda ([x : Natural]) x)))
+                 (loop (cons s out)
+                       (if (chunk? s) (sub1 limit) limit))]))))
   (apply
    string-append
    (symbol->string (first words))
