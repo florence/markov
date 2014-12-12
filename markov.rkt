@@ -33,10 +33,15 @@
             (null? (cddr words)))
            m]
           [else
-           (define key (list (first words) (second words)))
+           (define key 
+             (if ignore-sym?
+                 (list (clean (first words)) (clean (second words)))
+                 (list (first words) (second words))))
            (define new-value (third words))
            (define cleaned (if ignore-sym? (clean new-value) new-value))
-           (if (not cleaned)
+           (if (or (not cleaned)
+                   (not (first key))
+                   (not (second key)))
                (loop (cdddr words) m)
                (loop (rest words)
                      (add-data m key cleaned)))])))
@@ -52,6 +57,8 @@
        (string->symbol new)))
 (module+ test
   (check-equal? (clean '|a(|) 'a)
+  (check-equal? (clean '|(i.e.|) 'i.e.)
+  (check-equal? (clean '|(i.e.,|) '|i.e.,|)
   (check-equal? (clean '|(if|) 'if)
   (check-equal? (clean '|a)|) 'a)
   (check-equal? (clean '|a).|) 'a.)
