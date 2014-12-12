@@ -44,17 +44,18 @@
 (: clean : Symbol -> (Option Symbol))
 ;; cleans out all symbols except . , : ; !
 ;; returns #f if only symbols remain
-;; BUG: [ and ] are not treated as symbols because regex makes my head hurt
 (define (clean s)
-  (define symbols #rx"[()@#$%^&*\"'/><\\|]")
+  (define symbols #rx"[][()@#$%^&*\"'/><\\|]")
   (define exceptions #rx"^[.,:;\\!].*$")
   (define new (regexp-replace* symbols (symbol->string s) ""))
   (and (not (regexp-match? exceptions new))
        (string->symbol new)))
 (module+ test
   (check-equal? (clean '|a(|) 'a)
+  (check-equal? (clean '|(if|) 'if)
   (check-equal? (clean '|a)|) 'a)
   (check-equal? (clean '|a).|) 'a.)
+  (check-equal? (clean '|a].|) 'a.)
   (check-equal? (clean '|module).|) 'module.)
   (check-equal? (clean '!) #f))
 
@@ -93,14 +94,17 @@
                     blob-count)])))
 
   (define chain (markov-chain m))
-
+  (define old-limit limit)
   (define words
     (reverse
      (let loop : (Listof Symbol)
           ([out : (Listof Symbol) prefix] [limit : Natural limit])
           (define key (list (second out) (first out)))
           (define blob (hash-ref chain key #f))
-          (cond [(or (not blob) (zero? limit)) out]
+          (cond [(zero? limit)
+                 out]
+                [(not blob)
+                 (loop prefix old-limit)]
                 [else
                  (define s (choose (blob-count blob) (blob-data blob) (lambda ([x : Natural]) x)))
                  (loop (cons s out)
