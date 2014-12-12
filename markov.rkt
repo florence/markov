@@ -85,37 +85,47 @@
           (hash-set chain key b2)])))
 
 (: generate : (markov Natural [#:seed (Option Positive-Integer)] [#:prefix (Listof Symbol)]
-                      [#:chunk? (Symbol -> Any)]
+                      [#:chunk? (Symbol -> Any)] [#:min-words Natural]
                       -> String))
-(define (generate m limit #:seed [seed #f] #:prefix [in-prefix null] #:chunk? [chunk? (const #t)])
+(define (generate m limit #:seed [seed #f] #:prefix [in-prefix null]
+                  #:chunk? [chunk? (const #t)] #:min-words [min-words 0])
   (when seed
     (random-seed seed))
   
+  (define (generate-prefix)
+    (choose (markov-count m)
+            (markov-chain m)
+            blob-count))
   (define prefix
     (reverse
      (cond [(<= 2 (length in-prefix))
             in-prefix]
            [else
-            (choose (markov-count m)
-                    (markov-chain m)
-                    blob-count)])))
+            (generate-prefix)])))
 
   (define chain (markov-chain m))
   (define old-limit limit)
   (define words
     (reverse
      (let loop : (Listof Symbol)
-          ([out : (Listof Symbol) prefix] [limit : Natural limit])
+          ([out : (Listof Symbol) prefix]
+           [limit : Natural limit]
+           [words : Natural (length prefix)])
+          (define (restart)
+            (define p (generate-prefix))
+            (loop p old-limit (length p)))
           (define key (list (second out) (first out)))
           (define blob (hash-ref chain key #f))
           (cond [(zero? limit)
-                 out]
-                [(not blob)
-                 (loop prefix old-limit)]
+                 (if (>= words min-words)
+                     out
+                     (restart))]
+                [(not blob) (restart)]
                 [else
                  (define s (choose (blob-count blob) (blob-data blob) (lambda ([x : Natural]) x)))
                  (loop (cons s out)
-                       (if (chunk? s) (sub1 limit) limit))]))))
+                       (if (chunk? s) (sub1 limit) limit)
+                       (add1 words))]))))
   (apply
    string-append
    (symbol->string (first words))
