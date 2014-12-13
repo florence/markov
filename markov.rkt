@@ -1,6 +1,8 @@
 #lang typed/racket
 
-(provide MarkovChain train-markov generate save-markov load-markov)
+(provide MarkovChain train-markov generate save-markov load-markov
+         
+         markov-chain)
 
 (module+ test (require typed/rackunit))
 
@@ -50,7 +52,7 @@
 ;; cleans out all symbols except . , : ; !
 ;; returns #f if only symbols remain
 (define (clean s)
-  (define symbols #rx"[][()@#$%^&*\"'/><\\|]")
+  (define symbols #rx"[][()\"]")
   (define exceptions #rx"^[.,:;\\!].*$")
   (define new (regexp-replace* symbols (symbol->string s) ""))
   (and (not (regexp-match? exceptions new))
